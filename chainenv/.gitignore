@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+models/*.zip
+plots/
+logs/
+tensorboard_logs/
+.pytest_cache/
+*.pyc
+dist/
+build/
