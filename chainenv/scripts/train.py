@@ -104,8 +104,8 @@ def train(
 
     save_path = f"models/{name}_final"
     model.save(save_path)
-    print(f"\nModel saved → {save_path}.zip")
-    print(f"TensorBoard → tensorboard_logs/{name}")
+    print(f"\nModel saved -> {save_path}.zip")
+    print(f"TensorBoard -> tensorboard_logs/{name}")
     print(f"  Run: tensorboard --logdir tensorboard_logs/")
 
     vec_env.close()
