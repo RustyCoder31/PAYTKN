@@ -9,15 +9,15 @@ from enum import Enum
 
 
 class ActionKind(Enum):
-    PAYMENT = "payment"         # user pays a merchant
-    STAKE = "stake"             # user/merchant locks PAYTKN for yield
-    UNSTAKE = "unstake"         # user/merchant removes staked tokens
-    BUY = "buy"                 # buy PAYTKN from DEX with stablecoins
-    SELL = "sell"               # sell PAYTKN on DEX for stablecoins
-    INVITE = "invite"           # user invites a new participant
-    CANCEL = "cancel"           # user cancels a subscription (loyalty decay trigger)
-    LOAN_TAKE = "loan_take"     # merchant draws a collateralized loan from treasury
-    LOAN_REPAY = "loan_repay"   # merchant repays outstanding loan
+    PAYMENT = "payment"               # user pays a merchant
+    STAKE = "stake"                   # user/merchant buys PAYTKN and locks for yield
+    UNSTAKE = "unstake"               # user removes staked tokens → stable
+    MERCHANT_STAKE = "merchant_stake" # merchant stakes wallet_paytkn → merchant staking pool
+    BUY = "buy"                       # speculative buy PAYTKN via AMM with stable
+    IN_APP_BUY = "in_app_buy"         # buy PAYTKN directly from treasury (slight discount, no AMM impact)
+    SELL = "sell"                     # sell PAYTKN for stable (user speculative or merchant holdings)
+    INVITE = "invite"                 # user invites a new participant
+    CANCEL = "cancel"                 # user cancels a subscription (loyalty decay trigger)
 
 
 @dataclass

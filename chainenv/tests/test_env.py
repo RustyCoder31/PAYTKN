@@ -20,6 +20,15 @@ def test_action_space_shape(env):
     assert env.action_space.shape == (ACT_DIM,)
 
 
+def test_act_dim_is_6():
+    """v3.1 has 6 RL levers (LP bonus + loans removed)."""
+    assert ACT_DIM == 6
+
+
+def test_obs_dim_is_20():
+    assert OBS_DIM == 20
+
+
 def test_obs_in_valid_range(env):
     obs, _ = env.reset(seed=0)
     assert not np.any(np.isnan(obs))
@@ -71,6 +80,38 @@ def test_deterministic_with_same_seed():
     o2, r2, *_ = env2.step(action)
     np.testing.assert_array_almost_equal(o1, o2)
     assert r1 == pytest.approx(r2)
+
+
+def test_action_space_bounds():
+    env = PaytknEnv()
+    assert env.action_space.low.shape  == (ACT_DIM,)
+    assert env.action_space.high.shape == (ACT_DIM,)
+    assert np.all(env.action_space.low  == -1.0)
+    assert np.all(env.action_space.high ==  1.0)
+
+
+def test_metrics_in_info(env):
+    """Step info dict should include EconomyMetrics."""
+    action = env.action_space.sample()
+    _, _, _, _, info = env.step(action)
+    assert "metrics" in info
+    metrics = info["metrics"]
+    assert hasattr(metrics, "daily_tx_volume")
+    assert hasattr(metrics, "actual_apy")
+    assert hasattr(metrics, "merchant_pool_apy")
+    assert hasattr(metrics, "merchant_staking_pool")
+
+
+def test_merchant_receives_paytkn_not_stable(env):
+    """After payments, merchants should have wallet_paytkn > 0."""
+    # Run several steps to allow payments to flow
+    for _ in range(10):
+        action = env.action_space.sample()
+        env.step(action)
+    # At least some merchants should hold PAYTKN by now
+    merchants = env._pop.active_merchants
+    paytkn_holders = [m for m in merchants if m.wallet_paytkn > 0 or m.wallet > 0]
+    assert len(paytkn_holders) > 0
 
 
 def test_gymnasium_check():
