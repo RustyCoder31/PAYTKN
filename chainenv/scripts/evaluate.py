@@ -292,10 +292,15 @@ SCENARIOS = {
 
 
 def make_scenario_cfg(scenario: dict, episode_days: int = 180) -> SimConfig:
+    # Population cap no longer needed for performance — PopulationManager is fully
+    # vectorised (numpy arrays).  100 signups/day gives realistic ~50k-80k steady-state
+    # populations for long episodes while staying within array capacity.
+    max_signups = 100
     return SimConfig(
         initial_sentiment=scenario["initial_sentiment"],
         rng_seed=scenario["rng_seed"],
         episode_days=episode_days,
+        max_daily_signups=max_signups,
     )
 
 
@@ -389,7 +394,7 @@ def evaluate(model_path: str | None, n_episodes: int = 3, baseline_only: bool = 
 
     if not baseline_only and model_path:
         print(f"\n{'='*80}")
-        print(f"  ChainEnv v3.1 Evaluation  |  Model: {model_path}")
+        print(f"  ChainEnv v3.2 Evaluation  |  Model: {model_path}")
     else:
         print(f"\n{'='*80}")
         print(f"  ChainEnv v3.1 Baseline Evaluation (rule-based heuristic policy)")

@@ -6,7 +6,7 @@ Merchant staking pool: separate from user staking, funded by tx fee slice.
 Burn: RL-controlled daily burn from treasury (NOT from payment fees).
 Mint: adaptive — scales with ecosystem tx growth, penalised by inflation/price drop.
 
-Observation space (20-dim):
+Observation space (24-dim):
   0  price_ratio           current_price / 1.00 (clipped 0–3)
   1  volatility_norm       7-day price std / 1.00 (clipped 0–1)
   2  tx_volume_norm        daily payment USD / 500_000
@@ -27,6 +27,10 @@ Observation space (20-dim):
  17  actual_apy_norm       actual APY / 0.30 (clipped 0–1)
  18  daily_fees_norm       daily_fees_collected / 50_000
  19  merchant_pool_norm    merchant_staking_pool / initial_stable (clipped 0–1)
+ 20  system_tvl_norm       system TVL / (initial_stable × 10) (clipped 0–3)
+ 21  user_stable_norm      user wallet stable total / initial_stable (clipped 0–2)
+ 22  lp_paytkn_norm        PAYTKN in AMM / initial_lp_paytkn (clipped 0–2)
+ 23  merchant_paytkn_norm  merchant PAYTKN×price / initial_stable (clipped 0–1)
 
 Action space (6-dim, all in [-1, 1]):
   0  mint_factor           -> [0.0,   2.0]    adaptive mint multiplier
@@ -52,7 +56,7 @@ from chainenv.population import PopulationManager
 from chainenv.actions import ActionKind
 
 
-OBS_DIM = 20
+OBS_DIM = 24
 ACT_DIM = 6
 
 
@@ -130,58 +134,122 @@ class PaytknEnv(gym.Env):
 
         # 3. Population churn pressure + organic growth
         price_ratio = eco.price / max(0.001, self.cfg.initial_price)
+        treasury_health = eco.treasury_stable / max(1.0, self.cfg.initial_treasury_stable)
         new_u, churned = self._pop.daily_update(
             sentiment=self._sentiment.value,
             actual_apy=self._last_actual_apy,
             price=eco.price,
             price_ratio=price_ratio,
+            treasury_health=treasury_health,
         )
 
         if self._day % 7 == 0:
             self._pop.weekly_reset()
 
         # 4. Entity actions → economy
-        active_merchants = self._pop.active_merchants
-        active_users     = self._pop.active_users
+        n_active_u = self._pop.n_active_users
+        n_active_m = self._pop.n_active_merchants
 
-        # Build merchant lookup for O(1) access
-        merchant_map = {m.merchant_id: m for m in active_merchants}
+        # ── Vectorised user actions (replaces Python loop over 100k users) ──
+        user_agg = self._pop.compute_daily_user_actions(
+            sentiment=self._sentiment.value,
+            price=eco.price,
+            actual_apy=self._last_actual_apy,
+            rules=self.cfg.rules,
+        )
 
-        # Batch-roll recurring_factor check — one rng call instead of one per user
-        n_u = len(active_users)
-        if n_u > 0:
-            act_rolls = self._rng.random(n_u)
-            for user, roll in zip(active_users, act_rolls):
-                if roll > user.profile.recurring_factor:
-                    user.days_active += 1   # still ages even if no action today
-                    continue
-                u_actions = user.decide_day_actions(
-                    rng=self._rng,
-                    sentiment=self._sentiment.value,
-                    price=eco.price,
-                    actual_apy=self._last_actual_apy,
-                    rules=self.cfg.rules,
-                    merchants=active_merchants,
-                )
-                self._process_user_actions(u_actions, user, merchant_map, eco)
-
-        for merchant in active_merchants:
-            m_actions = merchant.decide_day_actions(
-                rng=self._rng,
-                sentiment=self._sentiment.value,
-                price=eco.price,
-                actual_apy=self._last_actual_apy,
-                rules=self.cfg.rules,
+        # Payments (batch — K=20 representative AMM calls instead of 100k)
+        if user_agg["total_payment_usd"] > 0:
+            paytkn_to_m, cashback_paytkn = eco.process_payment_batch(
+                total_usd=user_agg["total_payment_usd"],
+                n_payments=user_agg["n_payments"],
+                avg_loyalty=user_agg["avg_loyalty"],
+                avg_staking_boost=user_agg["avg_staking_boost"],
+                avg_seniority_boost=user_agg["avg_seniority_boost"],
+                avg_invite_boost=user_agg["avg_invite_boost"],
             )
-            self._process_merchant_actions(m_actions, merchant, eco)
+            self._pop.distribute_merchant_paytkn(paytkn_to_m, eco.price)
+            self._pop.receive_user_cashback(
+                user_agg["payer_indices"],
+                user_agg["payment_amounts"],
+                cashback_paytkn,
+            )
+            eco.record_stake(cashback_paytkn)
+
+        # User stakes (batch AMM buy)
+        if user_agg["total_stake_usd"] > 0:
+            paytkn_staked = eco.execute_buy("_users_stake", user_agg["total_stake_usd"])
+            eco.record_stake(paytkn_staked)
+            self._pop.record_user_stakes(
+                user_agg["stake_indices"],
+                user_agg["stake_amounts_usd"],
+                paytkn_staked,
+            )
+
+        # User unstakes (batch AMM sell)
+        if user_agg["total_unstake_paytkn"] > 0:
+            stable_recv = eco.execute_sell("_users_unstake", user_agg["total_unstake_paytkn"])
+            eco.record_unstake(user_agg["total_unstake_paytkn"])
+            self._pop.record_user_unstake_proceeds(
+                user_agg["unstake_indices"],
+                user_agg["unstake_amounts_paytkn"],
+                stable_recv,
+            )
+
+        # In-app PAYTKN buys (from treasury)
+        if user_agg["total_inapp_usd"] > 0:
+            avg_stk = float(self._pop._u.staked[self._pop._u_idx].mean()) \
+                      if len(self._pop._u_idx) > 0 else 0.0
+            paytkn_inapp = eco.execute_in_app_buy(
+                "_users_inapp", user_agg["total_inapp_usd"], avg_stk,
+            )
+            eco.record_stake(paytkn_inapp)
+
+        # Speculative AMM buys
+        if user_agg["total_amm_buy_usd"] > 0:
+            paytkn_spec = eco.execute_buy("_users_spec_buy", user_agg["total_amm_buy_usd"])
+            eco.record_stake(paytkn_spec)
+
+        # Speculative sells
+        if user_agg["total_sell_paytkn"] > 0:
+            eco.execute_sell("_users_spec_sell", user_agg["total_sell_paytkn"])
+            eco.record_unstake(user_agg["total_sell_paytkn"])
+
+        # ── Vectorised merchant actions ───────────────────────────
+        merch_agg = self._pop.compute_daily_merchant_actions(
+            sentiment=self._sentiment.value,
+            price=eco.price,
+            actual_apy=self._last_actual_apy,
+            rules=self.cfg.rules,
+        )
+
+        if merch_agg["total_sell_paytkn"] > 0:
+            m_stable = eco.execute_sell("_merchants_sell", merch_agg["total_sell_paytkn"])
+            # Distribute stable proceeds back to selling merchants proportionally
+            m_idx = self._pop._m_idx
+            if len(m_idx) > 0 and m_stable > 0:
+                self._pop._m.wallet[m_idx] += m_stable / len(m_idx)
+
+        if merch_agg["total_stake_paytkn"] > 0:
+            eco.record_merchant_stake(merch_agg["total_stake_paytkn"])
+
+        if merch_agg["total_stake_usd"] > 0:
+            paytkn_m_staked = eco.execute_buy("_merchants_stake", merch_agg["total_stake_usd"])
+            eco.record_merchant_stake(paytkn_m_staked)
 
         # 5. End day
-        n_active_u = len(active_users)
-        n_active_m = len(active_merchants)
+        user_stable    = self._pop.user_stable_total
+        user_staked_usd = self._pop.user_staked_total_paytkn * eco.price
+        merch_stable   = self._pop.merchant_stable_total
+        merch_paytkn_usd = self._pop.merchant_paytkn_total * eco.price
         metrics, actual_apy = eco.end_day(
             active_users=n_active_u,
             active_merchants=n_active_m,
             lp_providers=self._pop.lp_providers,
+            user_stable_total=user_stable,
+            user_staked_usd=user_staked_usd,
+            merchant_stable_total=merch_stable,
+            merchant_paytkn_usd=merch_paytkn_usd,
         )
         self._last_actual_apy = actual_apy
 
@@ -241,6 +309,10 @@ class PaytknEnv(gym.Env):
             "daily_mint":             metrics.daily_mint,
             "daily_in_app_volume":    metrics.daily_in_app_volume,
             "daily_dev_fees":         metrics.daily_dev_fees,
+            "system_tvl":             metrics.system_tvl,
+            "user_stable_total":      metrics.user_stable_total,
+            "user_staked_usd":        metrics.user_staked_usd,
+            "amm_tvl":                metrics.amm_tvl,
             "reward":                 reward,
         })
 
@@ -350,8 +422,8 @@ class PaytknEnv(gym.Env):
         if eco is None:
             return np.zeros(OBS_DIM, dtype=np.float32)
 
-        n_users     = len(self._pop.active_users)     if self._pop else cfg.initial_users
-        n_merchants = len(self._pop.active_merchants) if self._pop else cfg.initial_merchants
+        n_users     = self._pop.n_active_users     if self._pop else cfg.initial_users
+        n_merchants = self._pop.n_active_merchants if self._pop else cfg.initial_merchants
         n_lps       = len(self._pop.active_lp_providers) if self._pop else 0
 
         # Running mean maintained by PopulationManager — no list comprehension
@@ -363,6 +435,11 @@ class PaytknEnv(gym.Env):
         staking_ratio = staked_usd / max(1.0, supply_usd)
 
         reward_pool_usd = eco._reward_pool * eco.price
+
+        # Inline TVL for obs 20 (safe when eco is initialized)
+        tvl = (eco.treasury_stable + eco.treasury_paytkn * eco.price
+               + eco._lp_stable + eco._lp_paytkn * eco.price
+               + self._pop.user_staked_total_paytkn * eco.price)
 
         obs = np.array([
             np.clip(eco.price / cfg.initial_price, 0.0, 3.0),                                  # 0
@@ -388,6 +465,11 @@ class PaytknEnv(gym.Env):
             np.clip(self._last_actual_apy / 0.30, 0.0, 1.0),                                  # 17
             np.clip(eco._daily_fees_collected / 50_000, 0.0, 1.0),                             # 18
             np.clip(eco._merchant_staking_pool / max(1.0, cfg.initial_treasury_stable), 0.0, 1.0),  # 19
+            # New obs 20–23: liquidity
+            np.clip(tvl / max(1.0, cfg.initial_treasury_stable * 10.0), 0.0, 3.0),            # 20: system_tvl_norm
+            np.clip(self._pop.user_stable_total / max(1.0, cfg.initial_treasury_stable), 0.0, 2.0),  # 21: user_stable_norm
+            np.clip(eco._lp_paytkn / max(1.0, cfg.initial_lp_paytkn), 0.0, 2.0),              # 22: lp_paytkn_norm
+            np.clip(self._pop.merchant_paytkn_total * eco.price / max(1.0, cfg.initial_treasury_stable), 0.0, 1.0),  # 23: merchant_paytkn_norm
         ], dtype=np.float32)
 
         return obs

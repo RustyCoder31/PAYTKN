@@ -42,16 +42,13 @@ def train(
     cfg: SimConfig | None = None,
 ) -> PPO:
     if cfg is None:
-        # Lean training config — population capped to keep fps high.
-        # Steady-state users = max_daily_signups / base_churn_rate (0.001).
-        # For long episodes (5yr), uncapped = 100k users → fps crashes to 5.
-        # Cap: max_daily_signups=15 → steady state ~15k users → fps ~100+.
-        # Policy still transfers to full scale at eval time.
-        max_signups = 15 if episode_days >= 365 else 100
+        # PopulationManager is now fully vectorised (numpy arrays) — no population
+        # cap needed for performance.  max_daily_signups=100 gives a realistic
+        # 40–80k steady-state population that matches the eval environment.
         cfg = SimConfig(
             initial_users=200,
             initial_merchants=20,
-            max_daily_signups=max_signups,
+            max_daily_signups=100,
             episode_days=episode_days,
         )
 
@@ -64,7 +61,7 @@ def train(
     print(f"  Timesteps: {timesteps:,}")
     print(f"  Parallel envs: {n_envs}")
     print(f"  Episode days: {cfg.episode_days}  ({cfg.episode_days/365:.1f} years)")
-    est_hrs = timesteps / 170 / 3600   # ~170 env steps/sec on CPU with 4 envs
+    est_hrs = timesteps / 600 / 3600   # ~600+ env steps/sec with vectorised population
     print(f"  Est. duration: ~{est_hrs:.1f} hrs  (at ~170 steps/sec)")
     print(f"{'='*60}\n")
 

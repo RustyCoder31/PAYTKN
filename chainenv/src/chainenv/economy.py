@@ -71,6 +71,14 @@ class EconomyMetrics:
     merchant_staking_pool: float = 0.0    # size of merchant pool (PAYTKN)
     daily_in_app_volume:  float = 0.0    # stable spent on in-app PAYTKN purchases
     daily_dev_fees:       float = 0.0    # team cut (10% of protocol fees, stable)
+    # Liquidity metrics
+    amm_tvl: float = 0.0              # AMM pool total value (stable + PAYTKN×price)
+    lp_paytkn_depth: float = 0.0      # PAYTKN in AMM pool
+    user_stable_total: float = 0.0    # sum of all user wallet stable balances
+    user_staked_usd: float = 0.0      # sum of all user staked PAYTKN × price
+    merchant_stable_total: float = 0.0
+    merchant_paytkn_usd: float = 0.0  # merchant PAYTKN holdings × price
+    system_tvl: float = 0.0           # full TVL: treasury + AMM + user staked + merchant PAYTKN
 
 
 class Economy:
@@ -730,6 +738,51 @@ class Economy:
         """
         return 0.0
 
+    def process_payment_batch(
+        self,
+        total_usd: float,
+        n_payments: int,
+        avg_loyalty: float = 1.0,
+        avg_staking_boost: float = 0.0,
+        avg_seniority_boost: float = 0.0,
+        avg_invite_boost: float = 0.0,
+    ) -> tuple[float, float]:
+        """Process a batch of payments as K=20 representative mini-batches.
+
+        Instead of calling process_payment() n_payments times (too slow for 100k),
+        split into K representative payments.  K=20 keeps AMM price impact realistic
+        while reducing Python call overhead from O(n_payments) → O(20).
+
+        Returns (total_paytkn_to_merchants, total_cashback_paytkn).
+        """
+        if total_usd <= 0 or n_payments == 0:
+            return 0.0, 0.0
+
+        K         = min(n_payments, 20)
+        batch_usd = total_usd / K
+
+        total_to_merchants = 0.0
+        total_cashback     = 0.0
+
+        for _ in range(K):
+            paytkn_m, cashback = self.process_payment(
+                payer_id="_batch",
+                merchant_id="_batch",
+                amount_usd=batch_usd,
+                loyalty_score=avg_loyalty,
+                staking_boost=avg_staking_boost,
+                seniority_boost=avg_seniority_boost,
+                invite_boost=avg_invite_boost,
+            )
+            total_to_merchants += paytkn_m
+            total_cashback     += cashback
+
+        # process_payment counted K representative calls, but real tx count is n_payments.
+        # Add the difference so _daily_payment_count reflects actual transaction volume.
+        self._daily_payment_count += max(0, n_payments - K)
+
+        return total_to_merchants, total_cashback
+
     # ─────────────────────────────────────────────────────────
     # Agent-controlled burn (separate from payment fees)
     # ─────────────────────────────────────────────────────────
@@ -857,6 +910,10 @@ class Economy:
         active_users: int,
         active_merchants: int,
         lp_providers: list[LiquidityProvider] | None = None,
+        user_stable_total: float = 0.0,
+        user_staked_usd: float = 0.0,
+        merchant_stable_total: float = 0.0,
+        merchant_paytkn_usd: float = 0.0,
     ) -> tuple[EconomyMetrics, float]:
         """Finalise day. Returns (EconomyMetrics, actual_apy).
 
@@ -891,6 +948,15 @@ class Economy:
             if active_lps else 0.0
         )
 
+        amm_tvl    = self._lp_stable + self._lp_paytkn * self.price
+        system_tvl = (
+            self.treasury_stable
+            + self.treasury_paytkn * self.price
+            + amm_tvl
+            + user_staked_usd
+            + merchant_paytkn_usd
+        )
+
         metrics = EconomyMetrics(
             day=self._day,
             price=self.price,
@@ -919,5 +985,12 @@ class Economy:
             merchant_staking_pool=self._merchant_staking_pool,
             daily_in_app_volume=self._daily_in_app_volume,
             daily_dev_fees=self._daily_dev_fees,
+            amm_tvl=amm_tvl,
+            lp_paytkn_depth=self._lp_paytkn,
+            user_stable_total=user_stable_total,
+            user_staked_usd=user_staked_usd,
+            merchant_stable_total=merchant_stable_total,
+            merchant_paytkn_usd=merchant_paytkn_usd,
+            system_tvl=system_tvl,
         )
         return metrics, actual_apy

@@ -25,8 +25,8 @@ def test_act_dim_is_6():
     assert ACT_DIM == 6
 
 
-def test_obs_dim_is_20():
-    assert OBS_DIM == 20
+def test_obs_dim_is_24():
+    assert OBS_DIM == 24
 
 
 def test_obs_in_valid_range(env):
