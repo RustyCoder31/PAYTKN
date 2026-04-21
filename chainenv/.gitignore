@@ -9,6 +9,7 @@ venv/
 
 # Models — large binaries, don't commit
 models/*.zip
+!models/best_model.zip
 models/eval_logs/
 models/*.json
 models/*.txt
