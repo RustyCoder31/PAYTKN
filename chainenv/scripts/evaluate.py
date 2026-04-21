@@ -284,10 +284,23 @@ def static_action(obs: np.ndarray) -> np.ndarray:
 # Scenario definitions
 # ─────────────────────────────────────────────────────────────
 
+# Realistic 5-year market cycle — mirrors real crypto token lifecycles
+# (CELO/MATIC/similar utility tokens 2020-2025 style regime sequence)
+# Each tuple: (start_day, end_day, target_sentiment, drift_strength)
+REALISTIC_PHASE_SCHEDULE = [
+    (0,    180,  0.50, 0.03),   # Year 1: neutral launch — organic growth, unknown token
+    (181,  545,  0.75, 0.04),   # Year 2: bull run — hype, mass signups, price surge
+    (546,  910,  0.20, 0.05),   # Year 3: crypto winter — crash, fear, churn pressure
+    (911,  1275, 0.45, 0.03),   # Year 4: slow recovery — stabilisation, survivors stake
+    (1276, 1825, 0.65, 0.03),   # Year 5: mature bull — steady ecosystem, real utility
+]
+
 SCENARIOS = {
-    "bear":    {"initial_sentiment": 0.25, "rng_seed": 10},
-    "neutral": {"initial_sentiment": 0.50, "rng_seed": 20},
-    "bull":    {"initial_sentiment": 0.75, "rng_seed": 30},
+    "bear":      {"initial_sentiment": 0.25, "rng_seed": 10},
+    "neutral":   {"initial_sentiment": 0.50, "rng_seed": 20},
+    "bull":      {"initial_sentiment": 0.75, "rng_seed": 30},
+    "realistic": {"initial_sentiment": 0.50, "rng_seed": 42,
+                  "phase_schedule": REALISTIC_PHASE_SCHEDULE},
 }
 
 
@@ -301,6 +314,7 @@ def make_scenario_cfg(scenario: dict, episode_days: int = 180) -> SimConfig:
         rng_seed=scenario["rng_seed"],
         episode_days=episode_days,
         max_daily_signups=max_signups,
+        market_phase_schedule=scenario.get("phase_schedule", None),
     )
 
 

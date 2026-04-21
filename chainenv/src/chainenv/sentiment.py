@@ -43,8 +43,16 @@ class MarketSentiment:
         treasury_health: float,  # treasury_stable / initial_treasury_stable (0..∞, capped at 2)
         active_users: int,
         prev_users: int,
+        phase_target: float = 0.5,    # market phase target sentiment (from schedule)
+        phase_drift: float | None = None,  # override drift strength for this phase
     ) -> float:
-        """Compute and store new sentiment value. Returns updated value."""
+        """Compute and store new sentiment value. Returns updated value.
+
+        When a market phase schedule is active, mean-reversion pulls toward
+        `phase_target` (e.g. 0.75 during a bull run, 0.20 during a crash)
+        with strength `phase_drift` instead of the default drift toward 0.5.
+        This reproduces realistic multi-regime market cycles within one episode.
+        """
 
         # --- Price momentum signal [-1, 1] ---
         price_return = (price - price_yesterday) / (price_yesterday + 1e-8)
@@ -77,8 +85,9 @@ class MarketSentiment:
         nudge = raw * 0.05
         new_value = self.value + nudge
 
-        # --- Mean reversion toward 0.5 ---
-        new_value += self.drift * (0.5 - new_value)
+        # --- Mean reversion toward phase target (or 0.5 default) ---
+        drift_strength = phase_drift if phase_drift is not None else self.drift
+        new_value += drift_strength * (phase_target - new_value)
 
         # --- Small noise ---
         noise = float(self.rng.normal(0.0, 0.01))

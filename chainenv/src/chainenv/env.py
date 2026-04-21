@@ -265,6 +265,7 @@ class PaytknEnv(gym.Env):
         self._cached_volatility = self._compute_volatility()
         volatility = self._cached_volatility
         treasury_health = eco.treasury_stable / max(1.0, self.cfg.initial_treasury_stable)
+        phase_target, phase_drift = self._get_phase_sentiment()
         self._sentiment.update(
             price=eco.price,
             price_yesterday=self._price_history[-1],
@@ -272,6 +273,8 @@ class PaytknEnv(gym.Env):
             treasury_health=treasury_health,
             active_users=n_active_u,
             prev_users=self._prev_active_users,
+            phase_target=phase_target,
+            phase_drift=phase_drift,
         )
         self._price_history.append(eco.price)
 
@@ -592,3 +595,18 @@ class PaytknEnv(gym.Env):
         if len(self._price_history) < 2:
             return 0.0
         return float(np.std(self._price_history[-7:]))
+
+    def _get_phase_sentiment(self) -> tuple[float, float]:
+        """Return (target_sentiment, drift_strength) for the current day.
+
+        If cfg.market_phase_schedule is set, looks up which phase bracket
+        the current day falls into and returns its target + drift.
+        Falls back to (0.5, cfg.sentiment_drift) when no schedule is set
+        or no bracket matches — identical to default behaviour.
+        """
+        schedule = self.cfg.market_phase_schedule
+        if schedule:
+            for (start, end, target, drift) in schedule:
+                if start <= self._day <= end:
+                    return float(target), float(drift)
+        return 0.5, self.cfg.sentiment_drift

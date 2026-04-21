@@ -205,6 +205,12 @@ class SimConfig:
     # --- reproducibility ---
     rng_seed: int = 42
 
+    # --- realistic market phase schedule ---
+    # Each entry: (start_day, end_day, target_sentiment, drift_strength)
+    # Overrides the default mean-reversion-to-0.5 when set.
+    # Example: [(0,180,0.5,0.03), (181,545,0.75,0.04), ...]
+    market_phase_schedule: list | None = None
+
     # --- sub-configs ---
     weights: RewardWeights   = field(default_factory=RewardWeights)
     bounds:  ActionBounds    = field(default_factory=ActionBounds)
