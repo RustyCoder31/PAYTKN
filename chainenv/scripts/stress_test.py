@@ -66,8 +66,10 @@ EARLY_CRASH  = _ph(
 
 EXTENDED_BEAR = _ph(
     (0,    180,  0.50, 0.03),   # neutral launch
-    (181,  1095, 0.20, 0.04),   # 3-year crypto winter
-    (1096, 1460, 0.45, 0.03),   # recovery year 4
+    (181,  545,  0.20, 0.04),   # first wave bear (1 year)
+    (546,  730,  0.38, 0.03),   # mid-winter stabilisation / FUD relief rally
+    (731,  1095, 0.22, 0.04),   # second wave bear (another year)
+    (1096, 1460, 0.48, 0.03),   # recovery year 4
     (1461, 1825, 0.63, 0.03),   # late bull year 5
 )
 
@@ -228,8 +230,10 @@ STRESS_SCENARIOS = {
                     initial_users=5_000, initial_merchants=500,
                     market_phase_schedule=_ph(
                         (0,    180,  0.60, 0.03),   # stable mature start
-                        (181,  1095, 0.18, 0.05),   # sudden 3-year bear
-                        (1096, 1825, 0.50, 0.03),   # recovery
+                        (181,  545,  0.20, 0.05),   # first crash wave (1 year)
+                        (546,  730,  0.38, 0.03),   # dead-cat bounce / relief
+                        (731,  1095, 0.22, 0.04),   # second bear wave
+                        (1096, 1825, 0.58, 0.03),   # recovery + mature growth
                     )),
     },
 }
