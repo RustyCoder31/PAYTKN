@@ -265,17 +265,25 @@ class PaytknEnv(gym.Env):
         self._cached_volatility = self._compute_volatility()
         volatility = self._cached_volatility
         treasury_health = eco.treasury_stable / max(1.0, self.cfg.initial_treasury_stable)
-        phase_target, phase_drift = self._get_phase_sentiment()
-        self._sentiment.update(
-            price=eco.price,
-            price_yesterday=self._price_history[-1],
-            volatility=volatility,
-            treasury_health=treasury_health,
-            active_users=n_active_u,
-            prev_users=self._prev_active_users,
-            phase_target=phase_target,
-            phase_drift=phase_drift,
-        )
+
+        override_seq = self.cfg.sentiment_override_sequence
+        if override_seq is not None and self._day < len(override_seq):
+            # Real market data mode: bypass simulated sentiment update,
+            # inject the pre-computed value from real token price history.
+            self._sentiment.value = float(override_seq[self._day])
+        else:
+            # Simulated mode: compute sentiment from price/treasury signals.
+            phase_target, phase_drift = self._get_phase_sentiment()
+            self._sentiment.update(
+                price=eco.price,
+                price_yesterday=self._price_history[-1],
+                volatility=volatility,
+                treasury_health=treasury_health,
+                active_users=n_active_u,
+                prev_users=self._prev_active_users,
+                phase_target=phase_target,
+                phase_drift=phase_drift,
+            )
         self._price_history.append(eco.price)
 
         # 8. Reward
