@@ -253,13 +253,18 @@ class PaytknEnv(gym.Env):
         )
         self._last_actual_apy = actual_apy
 
-        # 6. LP lifecycle
+        # 6. LP lifecycle — updates active LPs, attracts new ones, removes exiters
         treasury_solvent = eco.treasury_stable > 50_000
-        self._pop.daily_update_lp_providers(
+        lp_delta = self._pop.daily_update_lp_providers(
             current_price=eco.price,
             daily_fees_to_lps=metrics.daily_fees_to_lps,
             treasury_covers_il=treasury_solvent,
         )
+        # Apply actual pool depth changes from LP joins and exits
+        if lp_delta["paytkn_removed"] > 0 or lp_delta["stable_removed"] > 0:
+            eco.remove_lp_liquidity(lp_delta["paytkn_removed"], lp_delta["stable_removed"])
+        if lp_delta["paytkn_added"] > 0 or lp_delta["stable_added"] > 0:
+            eco.add_lp_liquidity(lp_delta["paytkn_added"], lp_delta["stable_added"])
 
         # 7. Sentiment — cache volatility once (used in sentiment, obs, reward)
         self._cached_volatility = self._compute_volatility()

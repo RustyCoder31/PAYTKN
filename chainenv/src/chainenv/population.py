@@ -318,8 +318,14 @@ class PopulationManager:
         self._user_counter  = n_u
         self._merch_counter = n_m
 
-        for _ in range(self.cfg.initial_lp_providers):
-            self.lp_providers.append(self._spawn_lp(initial_price))
+        # Seed initial LPs — they collectively own the full initial AMM pool.
+        # Each LP gets an equal share; pool depth is already in Economy (10M/10M).
+        n_lps = self.cfg.initial_lp_providers
+        paytkn_per_lp = self.cfg.initial_lp_paytkn / max(1, n_lps)
+        stable_per_lp = self.cfg.initial_lp_stable / max(1, n_lps)
+        for _ in range(n_lps):
+            lp = self._spawn_lp_seeded(initial_price, paytkn_per_lp, stable_per_lp)
+            self.lp_providers.append(lp)
 
     # ─────────────────────────────────────────────────────────────
     # Daily update — main entry point
@@ -362,8 +368,21 @@ class PopulationManager:
         current_price: float,
         daily_fees_to_lps: float,
         treasury_covers_il: bool,
-    ) -> int:
-        exits = 0
+    ) -> dict:
+        """Update all LP providers. Returns pool delta dict for Economy to apply.
+
+        Returns:
+            {
+              "paytkn_removed": float,  # from exiting LPs
+              "stable_removed":  float,
+              "paytkn_added":   float,  # from newly joined LPs
+              "stable_added":    float,
+            }
+        """
+        paytkn_removed = 0.0
+        stable_removed  = 0.0
+
+        # Update existing LPs and collect exits
         for lp in self.lp_providers:
             if not lp.active:
                 continue
@@ -375,9 +394,22 @@ class PopulationManager:
                 rules=self.rules,
             )
             if not stayed:
-                exits += 1
-        self._grow_lp_providers(current_price)
-        return exits
+                # Compute how much pool liquidity this LP owned
+                paytkn_removed += lp.paytkn_deposited
+                stable_removed  += lp.stable_deposited
+
+        # Renormalize remaining LP shares after exits
+        self._renormalize_lp_shares()
+
+        # Grow pool with new LPs
+        paytkn_added, stable_added = self._grow_lp_providers(current_price)
+
+        return {
+            "paytkn_removed": paytkn_removed,
+            "stable_removed":  stable_removed,
+            "paytkn_added":   paytkn_added,
+            "stable_added":    stable_added,
+        }
 
     def weekly_reset(self) -> None:
         """Reset weekly cancel counters (vectorised numpy write)."""
@@ -891,9 +923,46 @@ class PopulationManager:
         self._merch_counter += n_new
         return n_new
 
-    def _grow_lp_providers(self, current_price: float) -> None:
-        if self.rng.random() < 0.05:
-            self.lp_providers.append(self._spawn_lp(current_price))
+    def _renormalize_lp_shares(self) -> None:
+        """Ensure all active LP lp_share values sum to exactly 1.0."""
+        active = [lp for lp in self.lp_providers if lp.active]
+        total = sum(lp.lp_share for lp in active)
+        if total > 0:
+            for lp in active:
+                lp.lp_share /= total
+
+    def _grow_lp_providers(self, current_price: float) -> tuple[float, float]:
+        """Possibly attract a new LP. Returns (paytkn_added, stable_added)."""
+        if self.rng.random() >= 0.05:
+            return 0.0, 0.0
+
+        active = [lp for lp in self.lp_providers if lp.active]
+        if len(active) >= 50:
+            return 0.0, 0.0
+
+        # New LP deposit size: log-normal around $200k in stable terms
+        stable_dep = float(self.rng.lognormal(mean=12.2, sigma=0.8))  # ~$200k median
+        paytkn_dep = stable_dep / max(0.001, current_price)
+
+        # Compute how much of the pool this LP would represent
+        # Approximate pool value using deposit sizes of all existing LPs
+        total_existing = sum(
+            lp.paytkn_deposited * lp.entry_price + lp.stable_deposited
+            for lp in active
+        ) or (stable_dep * 20)   # fallback if no existing LPs
+        deposit_value = stable_dep * 2
+        new_share = deposit_value / (total_existing + deposit_value)
+        new_share = float(max(0.005, min(new_share, 0.30)))
+
+        # Scale down existing shares proportionally
+        for lp in active:
+            lp.lp_share *= (1.0 - new_share)
+        self._renormalize_lp_shares()
+
+        # Create and register the new LP
+        lp = self._spawn_lp(current_price, paytkn_dep, stable_dep, new_share)
+        self.lp_providers.append(lp)
+        return paytkn_dep, stable_dep
 
     # ─────────────────────────────────────────────────────────────
     # Internal: churn
@@ -940,11 +1009,32 @@ class PopulationManager:
     # Internal: LP spawn
     # ─────────────────────────────────────────────────────────────
 
-    def _spawn_lp(self, entry_price: float) -> LiquidityProvider:
+    def _spawn_lp_seeded(
+        self,
+        entry_price: float,
+        paytkn_dep: float,
+        stable_dep: float,
+    ) -> LiquidityProvider:
+        """Create an initial LP that already owns part of the seeded pool."""
         self._lp_counter += 1
-        paytkn_dep = float(self.rng.lognormal(mean=9.0, sigma=1.2))
-        stable_dep = paytkn_dep * entry_price
-        lp_share   = float(self.rng.uniform(0.02, 0.15))
+        n_lps = max(1, self.cfg.initial_lp_providers)
+        return LiquidityProvider(
+            lp_id=f"lp{self._lp_counter}",
+            entry_price=max(0.001, entry_price),
+            paytkn_deposited=paytkn_dep,
+            stable_deposited=stable_dep,
+            lp_share=1.0 / n_lps,       # equal shares at genesis
+        )
+
+    def _spawn_lp(
+        self,
+        entry_price: float,
+        paytkn_dep: float,
+        stable_dep: float,
+        lp_share: float,
+    ) -> LiquidityProvider:
+        """Create a new LP that is joining an existing pool."""
+        self._lp_counter += 1
         return LiquidityProvider(
             lp_id=f"lp{self._lp_counter}",
             entry_price=max(0.001, entry_price),

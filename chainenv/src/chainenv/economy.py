@@ -437,6 +437,19 @@ class Economy:
         return paytkn_out
 
     # ─────────────────────────────────────────────────────────
+    # LP pool management — deposits and withdrawals affect AMM depth
+    # ─────────────────────────────────────────────────────────
+
+    def add_lp_liquidity(self, paytkn: float, stable: float) -> None:
+        """New LP deposits PAYTKN + stable into pool — grows depth, reduces slippage."""
+        self._lp_paytkn += max(0.0, paytkn)
+        self._lp_stable  += max(0.0, stable)
+
+    def remove_lp_liquidity(self, paytkn: float, stable: float) -> None:
+        """Exiting LP withdraws their proportional share from AMM pool."""
+        self._lp_paytkn = max(100_000.0, self._lp_paytkn - paytkn)
+        self._lp_stable  = max(100_000.0, self._lp_stable  - stable)
+
     # LP fee distribution
     # ─────────────────────────────────────────────────────────
 
