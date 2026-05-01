@@ -22,6 +22,76 @@ export const OPERATOR_ADDRESS = "0x39F361208EFf8062aE46aCD5095815c0a420cb20";
 /** Demo merchant address pre-filled in the live demo */
 export const DEMO_MERCHANT = "0x39F361208EFf8062aE46aCD5095815c0a420cb20";
 
+/**
+ * PaytknGateway — deployed on Base Sepolia.
+ * User calls pay(merchantAddr) with ETH value → merchant receives PAYTKN.
+ * Rate: 3000 PAYTKN per 1 ETH.  Pre-funded with 500,000 PAYTKN.
+ */
+export const GATEWAY_ADDRESS = "0x9f470AF320a1dD38d4f9f3A4c00E2eF7e68aAa33" as const;
+export const GATEWAY_RATE    = 3000; // PAYTKN per 1 ETH
+
+export const GATEWAY_ABI = [
+  {
+    inputs: [{ name: "merchant", type: "address" }],
+    name: "pay",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "ethWei", type: "uint256" }],
+    name: "previewPayment",
+    outputs: [
+      { name: "feeEth",           type: "uint256" },
+      { name: "netEth",           type: "uint256" },
+      { name: "paytknToMerchant", type: "uint256" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "ethToPaytknRate",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "totalPayments",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "totalPaytknSent",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "paytknBalance",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true,  name: "user",             type: "address" },
+      { indexed: true,  name: "merchant",          type: "address" },
+      { indexed: false, name: "ethAmount",         type: "uint256" },
+      { indexed: false, name: "feeEth",            type: "uint256" },
+      { indexed: false, name: "paytknToMerchant",  type: "uint256" },
+      { indexed: false, name: "timestamp",         type: "uint256" },
+    ],
+    name: "Payment",
+    type: "event",
+  },
+] as const;
+
 /** Minimal ERC-20 ABI — only what we need for balance reads */
 export const ERC20_ABI = [
   {

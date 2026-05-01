@@ -2,11 +2,13 @@
 import Link from "next/link";
 import { useState } from "react";
 
+// Merchant wallet — update to your merchant's connected wallet address
+// (Merchant connects at /merchant, copies their address here)
 const MERCHANT = {
   name: "TechMart Store",
-  address: "0x1234567890123456789012345678901234567890",
+  address: "0x39F361208EFf8062aE46aCD5095815c0a420cb20", // deployer wallet for demo
   logo: "🖥️",
-  description: "Premium tech products — pay with any crypto, earn PAYTKN cashback",
+  description: "Premium tech products — pay with ETH, merchant receives PAYTKN",
 };
 
 const PRODUCTS = [

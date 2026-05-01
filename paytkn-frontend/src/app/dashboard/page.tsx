@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, useSignMessage, useBalance, useReadContract } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { StatCard } from "@/components/StatCard";
 import { api } from "@/lib/api";
+import { CONTRACT_ADDRESSES, ERC20_ABI } from "@/lib/web3";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = "overview" | "transactions" | "staking" | "rewards" | "referrals" | "subscriptions" | "settings";
@@ -48,6 +49,19 @@ export default function UserDashboard() {
   const [authState, setAuthState]   = useState<"idle" | "signing" | "done" | "error">("idle");
   const [jwt, setJwt]               = useState<string | null>(null);
   const [tab, setTab]               = useState<Tab>("overview");
+
+  // ── Real on-chain balances (auto-refresh) ────────────────────────────────
+  const { data: ethBal }    = useBalance({ address, query: { refetchInterval: 10000 } });
+  const { data: paytknBal } = useReadContract({
+    address: CONTRACT_ADDRESSES.token as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [address ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!address, refetchInterval: 10000 },
+  });
+
+  const paytknFormatted = paytknBal ? (Number(paytknBal) / 1e18).toFixed(4) : "—";
+  const ethFormatted    = ethBal    ? parseFloat(ethBal.formatted).toFixed(5)    : "—";
   const [txFilter, setTxFilter]     = useState<TxFilter>("all");
   const [userData, setUserData]     = useState<any>(null);
   const [staking, setStaking]       = useState<any>(null);
@@ -222,8 +236,54 @@ export default function UserDashboard() {
       {/* ── OVERVIEW ── */}
       {tab === "overview" && (
         <div className="space-y-6">
+
+          {/* Live on-chain wallet balances */}
+          <div className="bg-gray-900 border border-indigo-800/40 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-xs text-green-400 font-medium uppercase tracking-widest">Live On-Chain Balances — Base Sepolia</span>
+              </div>
+              <a href={`https://sepolia.basescan.org/address/${address}`} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-gray-500 hover:text-gray-400">View on Basescan ↗</a>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gray-800/60 rounded-xl p-4">
+                <p className="text-xs text-gray-500 mb-1">ETH Balance</p>
+                <p className="font-mono text-xl font-bold text-white">{ethFormatted} <span className="text-sm text-gray-400">ETH</span></p>
+                <p className="text-xs text-gray-600 mt-1">Base Sepolia testnet</p>
+              </div>
+              <div className="bg-indigo-900/30 border border-indigo-800/30 rounded-xl p-4">
+                <p className="text-xs text-gray-500 mb-1">PAYTKN Balance</p>
+                <p className="font-mono text-xl font-bold text-indigo-300">{paytknFormatted} <span className="text-sm text-gray-400">PAYTKN</span></p>
+                <p className="text-xs text-gray-600 mt-1">Cashback from payments</p>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    await (window as any).ethereum.request({
+                      method: "wallet_watchAsset",
+                      params: { type: "ERC20", options: { address: CONTRACT_ADDRESSES.token, symbol: "PAYTKN", decimals: 18 } },
+                    });
+                  } catch {}
+                }}
+                className="text-xs bg-indigo-800/30 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                + Add PAYTKN to MetaMask
+              </button>
+              <a href="/store" className="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 rounded-lg px-3 py-1.5 transition-colors">
+                🛍️ Go to Store
+              </a>
+              <a href="/demo" className="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 rounded-lg px-3 py-1.5 transition-colors">
+                ⚡ Live Demo
+              </a>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="PAYTKN Balance"   value={`${(userData?.paytkn_balance ?? 1247).toLocaleString()}`} color="indigo" icon="⚡" sub="in wallet" />
+            <StatCard label="PAYTKN Balance"   value={paytknBal ? (Number(paytknBal) / 1e18).toFixed(2) : "—"} color="indigo" icon="⚡" sub="on-chain" />
             <StatCard label="Total Staked"     value={`${totalStaked.toLocaleString()}`}                        color="blue"   icon="🔒" sub="PAYTKN" />
             <StatCard label="Rewards Earned"   value={`${totalRewards.toFixed(2)}`}                             color="green"  icon="🎁" sub="PAYTKN lifetime" />
             <StatCard label="Active Subs"       value={MOCK_SUBSCRIPTIONS.length}                                color="purple" icon="🔄" sub="subscriptions" />

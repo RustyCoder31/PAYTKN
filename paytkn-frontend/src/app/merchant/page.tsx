@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract, useBalance } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { StatCard } from "@/components/StatCard";
 import { api } from "@/lib/api";
+import { CONTRACT_ADDRESSES, ERC20_ABI, GATEWAY_ADDRESS } from "@/lib/web3";
 
 type Tab = "overview" | "orders" | "products" | "subscriptions" | "staking" | "integration";
 
@@ -49,6 +50,16 @@ export default function MerchantDashboard() {
     if (address) api.merchantTier(address).then(setTierInfo).catch(() => {});
   }, [address]);
 
+  // ── Real on-chain balances ───────────────────────────────────────────────
+  const { data: ethBalance } = useBalance({ address, query: { refetchInterval: 8000 } });
+  const { data: paytknBalance, refetch: refetchPAYTKN } = useReadContract({
+    address: CONTRACT_ADDRESSES.token as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [address ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: !!address, refetchInterval: 8000 },
+  });
+
   const tierIdx = tierInfo?.tier ?? 0;
   const tier    = TIER_CONFIG[tierIdx];
   const apiKey  = address ? `pk_live_${address.slice(2, 14).toLowerCase()}xxxx` : "pk_live_connect_wallet";
@@ -84,8 +95,99 @@ export default function MerchantDashboard() {
     );
   }
 
+  const paytknFormatted = paytknBalance ? (Number(paytknBalance) / 1e18).toFixed(4) : "—";
+  const ethFormatted    = ethBalance    ? parseFloat(ethBalance.formatted).toFixed(5)    : "—";
+
   return (
     <div className="space-y-6">
+
+      {/* ── Live wallet panel ────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        {/* Receive address */}
+        <div className="md:col-span-2 bg-gray-900 border border-emerald-800/40 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-xs text-green-400 font-medium uppercase tracking-widest">Your Payment Address</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">Share this with customers — they send ETH, you receive PAYTKN</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 font-mono text-sm text-white break-all">
+              {address}
+            </code>
+            <button
+              onClick={() => { navigator.clipboard.writeText(address ?? ""); setCopied("addr"); setTimeout(() => setCopied(null), 2000); }}
+              className="shrink-0 bg-emerald-700/40 hover:bg-emerald-600/50 border border-emerald-700/50 text-emerald-300 rounded-lg px-3 py-2.5 text-xs transition-colors"
+            >
+              {copied === "addr" ? "✓ Copied" : "Copy"}
+            </button>
+          </div>
+          <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+            <span>Checkout link:</span>
+            <a
+              href={`/checkout?merchant=${address}&merchant_name=${encodeURIComponent(apiKey.split("_")[2] ?? "My Store")}&product=Product&price=10&emoji=🛒`}
+              target="_blank"
+              className="text-indigo-400 hover:text-indigo-300 underline truncate"
+            >
+              /checkout?merchant={address?.slice(0,10)}…
+            </a>
+          </div>
+        </div>
+
+        {/* Live balances */}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+          <div className="text-xs text-gray-500 uppercase tracking-widest font-medium">Live Balances</div>
+          <div className="space-y-3">
+            <div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs text-gray-400">ETH</span>
+                <span className="font-mono text-sm font-bold text-white">{ethFormatted} ETH</span>
+              </div>
+              <div className="h-0.5 bg-gray-800 mt-1 rounded" />
+            </div>
+            <div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs text-gray-400">PAYTKN</span>
+                <span className="font-mono text-sm font-bold text-emerald-400">{paytknFormatted} PAYTKN</span>
+              </div>
+              <div className="h-0.5 bg-gray-800 mt-1 rounded" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <button
+              onClick={() => refetchPAYTKN()}
+              className="w-full text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 rounded-lg py-2 transition-colors"
+            >
+              🔄 Refresh
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await (window as any).ethereum.request({
+                    method: "wallet_watchAsset",
+                    params: {
+                      type: "ERC20",
+                      options: { address: CONTRACT_ADDRESSES.token, symbol: "PAYTKN", decimals: 18 },
+                    },
+                  });
+                } catch {}
+              }}
+              className="w-full text-xs bg-indigo-800/30 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 rounded-lg py-2 transition-colors"
+            >
+              + Add PAYTKN to MetaMask
+            </button>
+            <a
+              href={`https://sepolia.basescan.org/address/${address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full text-xs text-center block bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 rounded-lg py-2 transition-colors"
+            >
+              View on Basescan ↗
+            </a>
+          </div>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
