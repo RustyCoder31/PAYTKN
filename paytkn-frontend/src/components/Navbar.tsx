@@ -4,10 +4,11 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/",          label: "Protocol",  icon: "⚡" },
-  { href: "/store",     label: "Store",     icon: "🛍️" },
-  { href: "/dashboard", label: "My Account",icon: "👤" },
-  { href: "/merchant",  label: "Merchant",  icon: "🏪" },
+  { href: "/",          label: "Protocol",   icon: "⚡" },
+  { href: "/demo",      label: "Live Demo",  icon: "🔴" },
+  { href: "/store",     label: "Store",      icon: "🛍️" },
+  { href: "/dashboard", label: "My Account", icon: "👤" },
+  { href: "/merchant",  label: "Merchant",   icon: "🏪" },
   { href: "/agent",        label: "RL Agent",     icon: "🤖" },
   { href: "/economy",      label: "Simulator",    icon: "📡" },
   { href: "/machinations", label: "Token Flow",   icon: "🔀" },
