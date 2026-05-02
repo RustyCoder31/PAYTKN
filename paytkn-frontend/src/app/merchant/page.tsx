@@ -96,10 +96,51 @@ export default function MerchantDashboard() {
   }
 
   const paytknFormatted = paytknBalance ? (Number(paytknBalance) / 1e18).toFixed(4) : "—";
-  const ethFormatted    = ethBalance    ? parseFloat(ethBalance.formatted).toFixed(5)    : "—";
+  const ethFormatted    = ethBalance    ? parseFloat(ethBalance.formatted).toFixed(5) : "—";
+
+  // Store link — opens on port 3000 (user side) with this merchant's address
+  const storeName = `TechMart Store`;
+  const storeLink = `http://localhost:3000/store?merchant=${address}&merchant_name=${encodeURIComponent(storeName)}`;
 
   return (
     <div className="space-y-6">
+
+      {/* ── Share Store Link — THE KEY DEMO BUTTON ───────────────────────── */}
+      <div className="bg-gradient-to-r from-emerald-950/60 to-indigo-950/40 border-2 border-emerald-700/50 rounded-2xl p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-3xl">🔗</span>
+          <div>
+            <h2 className="text-lg font-bold text-white">Share Your Store</h2>
+            <p className="text-sm text-emerald-400/80">Send this link to the user — they open it at <strong>localhost:3000</strong></p>
+          </div>
+        </div>
+
+        {/* Store link box */}
+        <div className="flex items-center gap-2 bg-gray-900 border border-emerald-700/40 rounded-xl px-4 py-3 mb-3">
+          <code className="flex-1 text-xs text-emerald-300 font-mono truncate">{storeLink}</code>
+          <button
+            onClick={() => { navigator.clipboard.writeText(storeLink); setCopied("link"); setTimeout(() => setCopied(null), 2500); }}
+            className="shrink-0 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-lg px-4 py-1.5 text-xs transition-colors"
+          >
+            {copied === "link" ? "✓ Copied!" : "Copy Link"}
+          </button>
+        </div>
+
+        {/* Open directly */}
+        <a
+          href={storeLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-colors"
+        >
+          🛍️ Open Store (localhost:3000) ↗
+        </a>
+
+        <p className="text-xs text-gray-500 mt-3">
+          The store will show your wallet address as the merchant. When a customer pays,
+          PAYTKN arrives in <strong className="text-white">this wallet</strong>.
+        </p>
+      </div>
 
       {/* ── Live wallet panel ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -108,9 +149,8 @@ export default function MerchantDashboard() {
         <div className="md:col-span-2 bg-gray-900 border border-emerald-800/40 rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs text-green-400 font-medium uppercase tracking-widest">Your Payment Address</span>
+            <span className="text-xs text-green-400 font-medium uppercase tracking-widest">Your Wallet (Receives PAYTKN)</span>
           </div>
-          <p className="text-xs text-gray-500 mb-2">Share this with customers — they send ETH, you receive PAYTKN</p>
           <div className="flex items-center gap-2">
             <code className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 font-mono text-sm text-white break-all">
               {address}
@@ -119,18 +159,8 @@ export default function MerchantDashboard() {
               onClick={() => { navigator.clipboard.writeText(address ?? ""); setCopied("addr"); setTimeout(() => setCopied(null), 2000); }}
               className="shrink-0 bg-emerald-700/40 hover:bg-emerald-600/50 border border-emerald-700/50 text-emerald-300 rounded-lg px-3 py-2.5 text-xs transition-colors"
             >
-              {copied === "addr" ? "✓ Copied" : "Copy"}
+              {copied === "addr" ? "✓" : "Copy"}
             </button>
-          </div>
-          <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
-            <span>Checkout link:</span>
-            <a
-              href={`/checkout?merchant=${address}&merchant_name=${encodeURIComponent(apiKey.split("_")[2] ?? "My Store")}&product=Product&price=10&emoji=🛒`}
-              target="_blank"
-              className="text-indigo-400 hover:text-indigo-300 underline truncate"
-            >
-              /checkout?merchant={address?.slice(0,10)}…
-            </a>
           </div>
         </div>
 

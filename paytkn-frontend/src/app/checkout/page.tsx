@@ -50,8 +50,11 @@ function CheckoutInner() {
   const period         = params.get("period")        ?? "monthly";
   const isSubscription = payType === "subscription";
 
-  // Demo ETH amount — tiny so users can actually pay on testnet
-  const ethAmount = getDemoEth(productName);
+  // eth_amount from URL (set by store) takes priority over product-name lookup
+  const ethAmountParam = params.get("eth_amount");
+  const ethAmount = ethAmountParam
+    ? parseFloat(ethAmountParam)
+    : getDemoEth(productName);
   const paytknToMerchant = ethAmount * 0.995 * GATEWAY_RATE; // after 0.5% fee
 
   const [step, setStep] = useState<Step>("connect");
