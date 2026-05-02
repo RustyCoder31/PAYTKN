@@ -71,15 +71,6 @@ export function Navbar() {
                   <span className="text-xs">{l.icon}</span>{l.label}
                 </Link>
               ))}
-              {/* Merchant always goes to port 3001 for wallet isolation */}
-              <a
-                href="http://localhost:3001/merchant"
-                className="px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 text-gray-400 hover:text-white hover:bg-gray-800"
-              >
-                <span className="text-xs">🏪</span>
-                Merchant
-                <span className="text-[10px] text-gray-600 ml-0.5">:3001</span>
-              </a>
             </div>
           )}
         </div>
