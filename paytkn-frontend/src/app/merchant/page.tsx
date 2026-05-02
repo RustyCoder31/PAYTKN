@@ -227,7 +227,7 @@ export default function MerchantDashboard() {
             <span className={`text-xs px-2 py-0.5 rounded-full border ${tier.bg} ${tier.color} font-semibold`}>{tier.icon} {tier.name}</span>
           </div>
         </div>
-        <a href="/store" target="_blank"
+        <a href={storeLink} target="_blank" rel="noopener noreferrer"
           className="flex items-center gap-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl transition-colors">
           🛍️ View Your Store ↗
         </a>
