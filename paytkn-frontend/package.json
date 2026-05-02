@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "merchant": "cross-env PORT=3001 next dev -p 3001",
+    "merchant": "node scripts/merchant-proxy.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
