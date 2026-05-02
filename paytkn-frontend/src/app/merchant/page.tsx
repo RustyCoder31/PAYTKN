@@ -45,10 +45,45 @@ export default function MerchantDashboard() {
   const [copied, setCopied]     = useState<string | null>(null);
   const [orderFilter, setOrderFilter] = useState<"all"|"one-time"|"subscription">("all");
   const [editProduct, setEditProduct] = useState<number | null>(null);
+  const [port, setPort]         = useState<string | null>(null);
+
+  useEffect(() => {
+    setPort(window.location.port);
+  }, []);
 
   useEffect(() => {
     if (address) api.merchantTier(address).then(setTierInfo).catch(() => {});
   }, [address]);
+
+  // ── Port guard: merchant must run on :3001 for wallet isolation ──────────
+  if (port !== null && port !== "3001") {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="text-center space-y-6 max-w-md">
+          <div className="text-7xl">🏪</div>
+          <div>
+            <h1 className="text-2xl font-bold text-white mb-2">Wrong Port</h1>
+            <p className="text-gray-400 text-sm leading-relaxed">
+              The merchant dashboard must run on <strong className="text-white">localhost:3001</strong> so MetaMask
+              treats it as a separate origin and lets you connect a different wallet from the user's.
+            </p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-left space-y-2">
+            <p className="text-xs text-gray-500 font-mono">In your terminal:</p>
+            <code className="text-xs text-emerald-400 font-mono block">npm run merchant</code>
+            <p className="text-xs text-gray-500 font-mono mt-2">Then open:</p>
+            <code className="text-xs text-indigo-400 font-mono block">http://localhost:3001/merchant</code>
+          </div>
+          <a
+            href="http://localhost:3001/merchant"
+            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-xl transition-colors"
+          >
+            Open at localhost:3001 →
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // ── Real on-chain balances ───────────────────────────────────────────────
   const { data: ethBalance } = useBalance({ address, query: { refetchInterval: 8000 } });
