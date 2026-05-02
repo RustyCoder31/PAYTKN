@@ -11,6 +11,19 @@ const orbitron  = Orbitron({ subsets: ["latin"], weight: ["700", "900"] });
 const spaceMono = Space_Mono({ subsets: ["latin"], weight: ["400", "700"] });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+interface DecisionEntry {
+  id: string;
+  day: number;
+  param: string;
+  oldVal: number;
+  newVal: number;
+  direction: "up" | "down";
+  action: string;
+  icon: string;
+  reason: string;
+  ts: string;
+}
+
 interface TxEvent {
   id: number; day?: number; tick?: number; type: string; desc: string;
   amount_usd: number; paytkn: number; color: string; ts: string;
@@ -86,6 +99,78 @@ const PARAM_LABEL: Record<string, string> = {
 // Keys to skip — derived values or internal, not RL levers
 const PARAM_SKIP = new Set(["staking_apy_pct"]);
 
+// ── AI Decision log helpers ───────────────────────────────────────────────────
+const PARAM_ACTION: Record<string, { up: string; down: string }> = {
+  burn_rate_bps:      { up: "Increased Burn Rate",       down: "Reduced Burn Rate"       },
+  mint_factor:        { up: "Increased Mint Output",     down: "Reduced Mint Output"     },
+  cashback_base_bps:  { up: "Boosted User Cashback",     down: "Trimmed User Cashback"   },
+  reward_alloc_bps:   { up: "Boosted Staking Rewards",   down: "Cut Staking Rewards"     },
+  merchant_alloc_bps: { up: "Increased Merchant Alloc",  down: "Cut Merchant Alloc"      },
+  treasury_ratio_bps: { up: "Raised Treasury Ratio",     down: "Lowered Treasury Ratio"  },
+};
+const PARAM_ICON: Record<string, { up: string; down: string }> = {
+  burn_rate_bps:      { up: "🔥", down: "💧" },
+  mint_factor:        { up: "⛏️", down: "📉" },
+  cashback_base_bps:  { up: "🎁", down: "✂️" },
+  reward_alloc_bps:   { up: "🚀", down: "📉" },
+  merchant_alloc_bps: { up: "🏪", down: "✂️" },
+  treasury_ratio_bps: { up: "🏦", down: "📤" },
+};
+
+function generateReason(param: string, oldVal: number, newVal: number, sim: SimState): string {
+  const up   = newVal > oldVal;
+  const p    = sim.token_price_usd;
+  const sent = sim.sentiment;
+  const sr   = sim.staking_ratio_pct ?? 0;
+
+  switch (param) {
+    case "burn_rate_bps":
+      return up
+        ? p < 0.99
+          ? `Price slipped to $${p.toFixed(4)} — below $1.00 peg. Agent raised burn rate to shrink circulating supply and push price back up.`
+          : `Supply growing faster than demand. Agent increased burn rate per transaction to apply deflationary pressure and protect peg.`
+        : `Price stable near $${p.toFixed(4)}. Agent eased burn rate to avoid over-deflation and preserve healthy liquidity for users.`;
+
+    case "mint_factor":
+      return up
+        ? `Staking reward pool running low. Agent raised mint output to replenish emissions and keep staking APY attractive for long-term holders.`
+        : p < 0.98
+          ? `Price at $${p.toFixed(4)} — below peg. Agent cut minting to tighten supply and support price recovery.`
+          : `Supply metrics healthy. Agent reduced mint factor to prevent token dilution and protect per-token value.`;
+
+    case "cashback_base_bps":
+      return up
+        ? sent < 0.45
+          ? `Bearish market sentiment at ${(sent * 100).toFixed(0)}%. Agent boosted cashback rewards to incentivise spending and rebuild positive user momentum.`
+          : `Transaction volume slowing. Agent raised cashback to make every payment more rewarding and drive network activity.`
+        : `Activity metrics strong — cashback was over-rewarding. Agent trimmed it to preserve treasury reserves for volatile periods.`;
+
+    case "reward_alloc_bps":
+      return up
+        ? sr < 25
+          ? `Staking ratio low at ${sr.toFixed(1)}%. Agent reallocated more protocol revenue to stakers to encourage locking and reduce liquid sell pressure.`
+          : `Agent increased staking yield to attract long-term holders, slow token velocity, and reinforce price stability.`
+        : `Staking ratio healthy at ${sr.toFixed(1)}%. Agent shifted allocation toward cashback and treasury to improve capital efficiency across the protocol.`;
+
+    case "merchant_alloc_bps":
+      return up
+        ? `Merchant payment volume declining. Agent increased merchant allocation to attract more businesses and widen the payment network.`
+        : `Merchant ecosystem active and well-incentivised. Agent trimmed allocation to redirect capital toward user cashback and staking rewards.`;
+
+    case "treasury_ratio_bps":
+      return up
+        ? p < 0.95
+          ? `Price critically low at $${p.toFixed(4)}. Agent is building treasury reserves to enable a potential buyback and defend the peg.`
+          : `Agent directing more revenue to treasury to build a volatility buffer ahead of uncertain market conditions.`
+        : `Treasury reserves adequate. Agent reduced allocation to free capital for user-facing incentives that drive protocol growth.`;
+
+    default:
+      return up
+        ? `Parameter raised in response to current network conditions per the PPO agent's optimization signal.`
+        : `Parameter lowered to rebalance protocol economics following the PPO agent's latest policy update.`;
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const n  = (v: number, d = 2) => (v ?? 0).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d });
 const nk = (v: number) => v >= 1e6 ? `${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `${(v/1e3).toFixed(1)}k` : (v ?? 0).toFixed(1);
@@ -129,15 +214,50 @@ function MCard({ label, value, sub, color = T.cyan }: { label: string; value: st
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function EconomyPage() {
-  const [sim, setSim]         = useState<SimState | null>(null);
-  const [running, setRunning] = useState(false);
-  const [prevP, setPrevP]     = useState(1.0);
-  const [backOk, setBackOk]   = useState(true);
-  const prevPRef = useRef(1.0);
+  const [sim, setSim]             = useState<SimState | null>(null);
+  const [running, setRunning]     = useState(false);
+  const [prevP, setPrevP]         = useState(1.0);
+  const [backOk, setBackOk]       = useState(true);
+  const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
+  const prevPRef      = useRef(1.0);
+  const prevParamsRef = useRef<Record<string, number>>({});
 
   const loadState = useCallback(async () => {
     try {
       const s: SimState = await api.simState();
+
+      // ── Detect RL param changes and build decision log entries ──────────
+      const newParams = s.rl_params ?? {};
+      const oldParams = prevParamsRef.current;
+      if (Object.keys(oldParams).length > 0) {
+        const newEntries: DecisionEntry[] = [];
+        for (const [key, newVal] of Object.entries(newParams)) {
+          if (PARAM_SKIP.has(key)) continue;
+          const oldVal = oldParams[key];
+          if (oldVal !== undefined && Math.abs(newVal - oldVal) >= 1) {
+            const dir = newVal > oldVal ? "up" : "down";
+            const actions = PARAM_ACTION[key] ?? { up: "Adjusted up", down: "Adjusted down" };
+            const icons   = PARAM_ICON[key]   ?? { up: "⚙️", down: "⚙️" };
+            newEntries.push({
+              id:        `${key}-${Date.now()}-${Math.random()}`,
+              day:       s.day ?? s.tick ?? 0,
+              param:     key,
+              oldVal,
+              newVal,
+              direction: dir,
+              action:    actions[dir],
+              icon:      icons[dir],
+              reason:    generateReason(key, oldVal, newVal, s),
+              ts:        new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+            });
+          }
+        }
+        if (newEntries.length > 0) {
+          setDecisions(prev => [...newEntries, ...prev].slice(0, 30));
+        }
+      }
+      prevParamsRef.current = { ...newParams };
+
       setSim(prev => {
         if (prev) { setPrevP(prev.token_price_usd); prevPRef.current = prev.token_price_usd; }
         return s;
@@ -163,7 +283,15 @@ export default function EconomyPage() {
 
   async function start() { try { await api.simStart(); setRunning(true); } catch {} }
   async function stop()  { try { await api.simStop();  setRunning(false); } catch {} }
-  async function reset() { try { await api.simReset(); setSim(null); setRunning(false); } catch {} }
+  async function reset() {
+    try {
+      await api.simReset();
+      setSim(null);
+      setRunning(false);
+      setDecisions([]);
+      prevParamsRef.current = {};
+    } catch {}
+  }
 
   const price        = sim?.token_price_usd ?? 1.0;
   const priceUp      = price >= prevPRef.current;
@@ -623,6 +751,119 @@ export default function EconomyPage() {
             </div>
           </div>
         </div>
+
+        {/* ══ AI DECISION LOG ═════════════════════════════════════════════════ */}
+        <div style={{ padding: "0 20px 28px" }}>
+          <div style={{ background: T.panel, border: `1px solid rgba(168,85,247,0.35)`, borderRadius: 8, overflow: "hidden" }}>
+
+            {/* Section header */}
+            <div style={{
+              padding: "12px 20px", borderBottom: `1px solid ${T.border}`,
+              display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+            }}>
+              <LED color={T.purple} pulse={running} />
+              <span className={orbitron.className} style={{ fontSize: 10, letterSpacing: "0.18em", color: "#9333ea", fontWeight: 700 }}>
+                AI DECISION LOG
+              </span>
+              <span style={{ fontSize: 10, color: T.dim }}>— what the RL agent changed &amp; why</span>
+              <div style={{ marginLeft: "auto", display: "flex", align: "center", gap: 12 }}>
+                {decisions.length > 0 && (
+                  <span className={spaceMono.className} style={{ fontSize: 9, color: T.purple }}>
+                    {decisions.length} decision{decisions.length !== 1 ? "s" : ""} recorded
+                  </span>
+                )}
+                <span className={spaceMono.className} style={{ fontSize: 9, color: T.dim }}>
+                  PPO updates every ~30s · tracking {Object.keys(params).filter(k => !PARAM_SKIP.has(k)).length} parameters
+                </span>
+              </div>
+            </div>
+
+            {/* Empty state */}
+            {decisions.length === 0 && (
+              <div style={{ padding: "48px 20px", textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
+                <div style={{ fontSize: 13, color: T.text, marginBottom: 6 }}>
+                  {running ? "Watching for parameter changes…" : "Start the simulation to see AI decisions"}
+                </div>
+                <div style={{ fontSize: 10, color: T.dim }}>
+                  Entries appear whenever the PPO agent adjusts burn rate, cashback, staking rewards, or other economic levers
+                </div>
+              </div>
+            )}
+
+            {/* Decision cards grid */}
+            {decisions.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
+                {decisions.map((d, i) => {
+                  const pct = Math.abs(((d.newVal - d.oldVal) / Math.max(d.oldVal, 1)) * 100);
+                  const isUp = d.direction === "up";
+                  const accentColor = isUp ? T.green : T.red;
+                  return (
+                    <div key={d.id} style={{
+                      padding: "16px 20px",
+                      borderBottom: `1px solid ${T.bg}`,
+                      borderRight: `1px solid ${T.bg}`,
+                      background: i === 0 ? `rgba(168,85,247,0.04)` : "#030609",
+                      animation: i === 0 ? "row-in 0.4s ease" : undefined,
+                    }}>
+
+                      {/* Top row: icon + action + day */}
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 22, lineHeight: 1 }}>{d.icon}</span>
+                          <div>
+                            <div style={{ fontSize: 12, color: T.textB, fontWeight: 700, lineHeight: 1.2 }}>{d.action}</div>
+                            <div style={{ fontSize: 9, color: T.dim, marginTop: 3, letterSpacing: "0.06em" }}>
+                              {PARAM_LABEL[d.param] ?? d.param}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <div className={spaceMono.className} style={{ fontSize: 10, color: T.cyan }}>Day {d.day}</div>
+                          <div className={spaceMono.className} style={{ fontSize: 9, color: T.dim }}>{d.ts}</div>
+                        </div>
+                      </div>
+
+                      {/* Value change bar */}
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        background: T.bg, borderRadius: 6, padding: "8px 12px", marginBottom: 10,
+                      }}>
+                        <span className={spaceMono.className} style={{ fontSize: 13, color: T.dim }}>{d.oldVal}</span>
+                        <div style={{ flex: 1, height: 3, background: "#0d1f38", borderRadius: 99, overflow: "hidden" }}>
+                          <div style={{
+                            height: "100%", borderRadius: 99,
+                            width: `${Math.min(100, pct * 3)}%`,
+                            background: `linear-gradient(90deg, ${accentColor}66, ${accentColor})`,
+                            transition: "width 0.8s ease",
+                          }} />
+                        </div>
+                        <span className={spaceMono.className} style={{ fontSize: 15, fontWeight: 700, color: accentColor }}>{d.newVal}</span>
+                        <span style={{ fontSize: 11, color: accentColor, fontWeight: 700 }}>
+                          {isUp ? "▲" : "▼"} {pct.toFixed(1)}%
+                        </span>
+                      </div>
+
+                      {/* Reason */}
+                      <div style={{
+                        fontSize: 11, color: T.text, lineHeight: 1.6,
+                        padding: "9px 12px",
+                        background: "rgba(168,85,247,0.05)",
+                        border: "1px solid rgba(168,85,247,0.12)",
+                        borderRadius: 6,
+                      }}>
+                        <span style={{ color: T.purple, marginRight: 6, fontSize: 12 }}>🤖</span>
+                        {d.reason}
+                      </div>
+
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   );
