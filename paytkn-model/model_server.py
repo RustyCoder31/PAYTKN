@@ -22,7 +22,8 @@ MODEL_PATHS  = [
     Path(__file__).parent.parent / "chainenv"   / "models" / "paytkn_v33_final.zip",
     Path(__file__).parent / "best_model.zip",
 ]
-STEP_INTERVAL = 30        # seconds between RL steps when loop is running
+STEP_INTERVAL = 30        # seconds between RL steps — updated via /speed endpoint
+_step_interval: float = STEP_INTERVAL
 OBS_DIM       = 10
 
 # ── Parameter bounds (must match contract) ───────────────────────────────────
@@ -196,13 +197,16 @@ def run_inference_step() -> dict:
 
 def inference_loop():
     global _loop_running
-    print(f"[LOOP] Starting inference loop every {STEP_INTERVAL}s")
+    print(f"[LOOP] Starting inference loop every {_step_interval:.1f}s")
     while _loop_running:
         try:
             run_inference_step()
         except Exception as e:
             print(f"[LOOP] Error: {e}")
-        time.sleep(STEP_INTERVAL)
+        elapsed = 0.0
+        while _loop_running and elapsed < _step_interval:
+            time.sleep(0.05)
+            elapsed += 0.05
     print("[LOOP] Stopped")
 
 
@@ -277,6 +281,15 @@ def stop_loop():
     _loop_running = False
     report_status()
     return {"status": "stopping"}
+
+
+@app.post("/speed")
+def set_speed(seconds_per_step: float = 30.0):
+    """Set the RL inference interval. Min 0.3s, max 60s."""
+    global _step_interval
+    _step_interval = max(0.3, min(60.0, seconds_per_step))
+    print(f"[LOOP] Speed set to {_step_interval:.2f}s per step")
+    return {"status": "ok", "seconds_per_step": _step_interval}
 
 
 @app.get("/predict")

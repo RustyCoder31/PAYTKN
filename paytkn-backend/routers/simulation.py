@@ -1178,14 +1178,20 @@ def _tick_day():
             _state.daily_stats.pop(0)
 
 
+_tick_interval: float = 30.0   # seconds per simulated day — changeable via /simulation/speed
+
 def _loop():
-    print("[SIM] Agent-based economy simulation started — 30s = 1 day")
+    print(f"[SIM] Agent-based economy simulation started — {_tick_interval:.1f}s = 1 day")
     while _state.running:
         try:
             _tick_day()
         except Exception as e:
             print(f"[SIM] day tick error: {e}")
-        time.sleep(30)  # 30 seconds = 1 simulated day
+        # Sleep in 0.05s chunks so speed changes and stops take effect immediately
+        elapsed = 0.0
+        while _state.running and elapsed < _tick_interval:
+            time.sleep(0.05)
+            elapsed += 0.05
     print("[SIM] Economy simulation stopped")
 
 
@@ -1389,3 +1395,12 @@ def reset_sim():
         "merchants": len(_state.merchants),
         "treasury_usd": round(_state.eco.treasury_value_usd, 2),
     }
+
+
+@router.post("/speed")
+def set_speed(seconds_per_day: float = 30.0):
+    """Set how many real seconds = 1 simulated day. Min 0.3s, max 60s."""
+    global _tick_interval
+    _tick_interval = max(0.3, min(60.0, seconds_per_day))
+    print(f"[SIM] Speed set to {_tick_interval:.2f}s per day")
+    return {"status": "ok", "seconds_per_day": _tick_interval}

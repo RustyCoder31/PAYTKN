@@ -56,13 +56,15 @@ export const api = {
   simStart:  () => post(API, "/simulation/start"),
   simStop:   () => post(API, "/simulation/stop"),
   simReset:  () => post(API, "/simulation/reset"),
+  simSpeed:  (secondsPerDay: number) => post(API, `/simulation/speed?seconds_per_day=${secondsPerDay}`),
 };
 
 // ── RL Model Server (port 8001) ───────────────────────────────────────────────
 export const modelApi = {
-  status:    ()         => get(MODEL_API, "/status"),
-  predict:   ()         => get(MODEL_API, "/predict"),
-  step:      ()         => post(MODEL_API, "/step"),
-  startLoop: ()         => post(MODEL_API, "/start"),
-  stopLoop:  ()         => post(MODEL_API, "/stop"),
+  status:    ()                        => get(MODEL_API, "/status"),
+  predict:   ()                        => get(MODEL_API, "/predict"),
+  step:      ()                        => post(MODEL_API, "/step"),
+  startLoop: ()                        => post(MODEL_API, "/start"),
+  stopLoop:  ()                        => post(MODEL_API, "/stop"),
+  setSpeed:  (secondsPerStep: number)  => post(MODEL_API, `/speed?seconds_per_step=${secondsPerStep}`),
 };

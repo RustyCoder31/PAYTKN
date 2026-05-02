@@ -5,7 +5,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, LineChart, Line,
 } from "recharts";
-import { api } from "@/lib/api";
+import { api, modelApi } from "@/lib/api";
 
 const orbitron  = Orbitron({ subsets: ["latin"], weight: ["700", "900"] });
 const spaceMono = Space_Mono({ subsets: ["latin"], weight: ["400", "700"] });
@@ -219,8 +219,10 @@ export default function EconomyPage() {
   const [prevP, setPrevP]         = useState(1.0);
   const [backOk, setBackOk]       = useState(true);
   const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
+  const [speed, setSpeed]         = useState(1);   // multiplier: 1 5 10 30 60
   const prevPRef      = useRef(1.0);
   const prevParamsRef = useRef<Record<string, number>>({});
+  const pollRef       = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadState = useCallback(async () => {
     try {
@@ -267,7 +269,7 @@ export default function EconomyPage() {
     } catch { setBackOk(false); }
   }, []);
 
-  // Auto-start + poll every 2.5 s
+  // Auto-start on mount
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -277,19 +279,39 @@ export default function EconomyPage() {
         if (mounted) { setSim(s); setRunning(true); }
       } catch {}
     })();
-    const t = setInterval(() => { if (mounted) loadState(); }, 2500);
-    return () => { mounted = false; clearInterval(t); };
-  }, [loadState]);
+    return () => { mounted = false; };
+  }, []);   // run once
+
+  // Dynamic poll interval — restarts whenever speed changes
+  useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    // At 1× poll every 2.5s; at higher speed poll at half the tick interval (min 300ms)
+    const secsPerDay = 30 / speed;
+    const pollMs = Math.max(300, secsPerDay * 500);
+    pollRef.current = setInterval(() => loadState(), pollMs);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [speed, loadState]);
 
   async function start() { try { await api.simStart(); setRunning(true); } catch {} }
   async function stop()  { try { await api.simStop();  setRunning(false); } catch {} }
+
+  async function changeSpeed(mult: number) {
+    const secsPerDay = 30 / mult;
+    setSpeed(mult);
+    try { await api.simSpeed(secsPerDay); } catch {}
+    try { await modelApi.setSpeed(secsPerDay); } catch {}
+  }
+
   async function reset() {
     try {
       await api.simReset();
       setSim(null);
       setRunning(false);
       setDecisions([]);
+      setSpeed(1);
       prevParamsRef.current = {};
+      try { await api.simSpeed(30); } catch {}
+      try { await modelApi.setSpeed(30); } catch {}
     } catch {}
   }
 
@@ -366,8 +388,33 @@ export default function EconomyPage() {
             </div>
           </div>
 
-          {/* Right: controls */}
-          <div style={{ display: "flex", gap: 6 }}>
+          {/* Right: speed + controls */}
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+
+            {/* Speed selector */}
+            <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 4px", background: T.panel, border: `1px solid ${T.border}`, borderRadius: 6 }}>
+              <span style={{ fontSize: 9, color: T.dim, letterSpacing: "0.1em", paddingLeft: 6, paddingRight: 4 }}>SPEED</span>
+              {([1, 5, 10, 30, 60] as const).map(mult => (
+                <button key={mult} onClick={() => changeSpeed(mult)} style={{
+                  padding: "3px 9px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.04em",
+                  background: speed === mult ? T.cyan : "transparent",
+                  border: speed === mult ? `1px solid ${T.cyan}` : "1px solid transparent",
+                  color: speed === mult ? T.bg : T.dim,
+                  transition: "all 0.15s",
+                }}>
+                  {mult}×
+                </button>
+              ))}
+            </div>
+
+            {/* Day/time indicator */}
+            <div style={{ fontSize: 9, color: T.dim, padding: "3px 8px", background: T.panel, border: `1px solid ${T.border}`, borderRadius: 5 }}>
+              <span className={spaceMono.className} style={{ color: T.cyan }}>
+                {speed > 1 ? `${(30 / speed).toFixed(1)}s` : "30s"}/day
+              </span>
+            </div>
+
             {[
               { label: running ? "⏹ STOP" : "▶ START", action: running ? stop : start, color: running ? T.red : T.green },
               { label: "↺ RESET", action: reset, color: T.amber },
